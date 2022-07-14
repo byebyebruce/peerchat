@@ -4,9 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/manishmeganathan/peerchat/src"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/manishmeganathan/peerchat/chat"
+	"github.com/manishmeganathan/peerchat/p2p"
+	"github.com/manishmeganathan/peerchat/ui"
+	"github.com/multiformats/go-multiaddr"
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,6 +28,8 @@ W E L C O M E  T O
 dP     
 `
 
+const service = "byebyebruce/peerchat"
+
 func init() {
 	// Log as Text with color
 	logrus.SetFormatter(&logrus.TextFormatter{
@@ -37,10 +44,12 @@ func init() {
 
 func main() {
 	// Define input flags
+	port := flag.Int("port", 0, "port")
 	username := flag.String("user", "", "username to use in the chatroom.")
 	chatroom := flag.String("room", "", "chatroom to join.")
-	loglevel := flag.String("log", "", "level of logs to print.")
+	loglevel := flag.String("log", "debug", "level of logs to print.")
 	discovery := flag.String("discover", "", "method to use for discovery.")
+	bootstrap := flag.String("bootstrap", "", "bootstrap server")
 	// Parse input flags
 	flag.Parse()
 
@@ -70,8 +79,20 @@ func main() {
 	fmt.Println("This may take upto 30 seconds.")
 	fmt.Println()
 
+	var bp []multiaddr.Multiaddr
+	if len(*bootstrap) > 0 {
+		for _, v := range strings.Split(*bootstrap, ",") {
+			ad, err := multiaddr.NewMultiaddr(v)
+			if err != nil {
+				panic(err)
+			}
+			bp = append(bp, ad)
+		}
+	} else {
+		bp = dht.DefaultBootstrapPeers
+	}
 	// Create a new P2PHost
-	p2phost := src.NewP2P()
+	p2phost := p2p.NewP2P(*port, service, bp)
 	logrus.Infoln("Completed P2P Setup")
 
 	// Connect to peers with the chosen discovery method
@@ -86,14 +107,14 @@ func main() {
 	logrus.Infoln("Connected to Service Peers")
 
 	// Join the chat room
-	chatapp, _ := src.JoinChatRoom(p2phost, *username, *chatroom)
+	chatapp, _ := chat.JoinChatRoom(p2phost, *username, *chatroom)
 	logrus.Infof("Joined the '%s' chatroom as '%s'", chatapp.RoomName, chatapp.UserName)
 
 	// Wait for network setup to complete
 	time.Sleep(time.Second * 5)
 
 	// Create the Chat UI
-	ui := src.NewUI(chatapp)
+	ui := ui.NewUI(chatapp)
 	// Start the UI system
 	ui.Run()
 }

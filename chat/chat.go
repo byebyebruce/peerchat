@@ -1,4 +1,4 @@
-package src
+package chat
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/manishmeganathan/peerchat/p2p"
 )
 
 // Represents the default fallback room and user names
@@ -17,14 +18,14 @@ const defaultroom = "lobby"
 // A structure that represents a PubSub Chat Room
 type ChatRoom struct {
 	// Represents the P2P Host for the ChatRoom
-	Host *P2P
+	Host *p2p.P2P
 
 	// Represents the channel of incoming messages
-	Inbound chan chatmessage
+	Inbound chan Chatmessage
 	// Represents the channel of outgoing messages
 	Outbound chan string
 	// Represents the channel of chat log messages
-	Logs chan chatlog
+	Logs chan Chatlog
 
 	// Represents the name of the chat room
 	RoomName string
@@ -44,21 +45,21 @@ type ChatRoom struct {
 }
 
 // A structure that represents a chat message
-type chatmessage struct {
+type Chatmessage struct {
 	Message    string `json:"message"`
 	SenderID   string `json:"senderid"`
 	SenderName string `json:"sendername"`
 }
 
 // A structure that represents a chat log
-type chatlog struct {
-	logprefix string
-	logmsg    string
+type Chatlog struct {
+	Logprefix string
+	Logmsg    string
 }
 
 // A constructor function that generates and returns a new
 // ChatRoom for a given P2PHost, username and roomname
-func JoinChatRoom(p2phost *P2P, username string, roomname string) (*ChatRoom, error) {
+func JoinChatRoom(p2phost *p2p.P2P, username string, roomname string) (*ChatRoom, error) {
 
 	// Create a PubSub topic with the room name
 	topic, err := p2phost.PubSub.Join(fmt.Sprintf("room-peerchat-%s", roomname))
@@ -93,9 +94,9 @@ func JoinChatRoom(p2phost *P2P, username string, roomname string) (*ChatRoom, er
 	chatroom := &ChatRoom{
 		Host: p2phost,
 
-		Inbound:  make(chan chatmessage),
+		Inbound:  make(chan Chatmessage),
 		Outbound: make(chan string),
-		Logs:     make(chan chatlog),
+		Logs:     make(chan Chatlog),
 
 		psctx:    pubsubctx,
 		pscancel: cancel,
@@ -116,7 +117,7 @@ func JoinChatRoom(p2phost *P2P, username string, roomname string) (*ChatRoom, er
 	return chatroom, nil
 }
 
-// A method of ChatRoom that publishes a chatmessage
+// A method of ChatRoom that publishes a Chatmessage
 // to the PubSub topic until the pubsub context closes
 func (cr *ChatRoom) PubLoop() {
 	for {
@@ -126,7 +127,7 @@ func (cr *ChatRoom) PubLoop() {
 
 		case message := <-cr.Outbound:
 			// Create a ChatMessage
-			m := chatmessage{
+			m := Chatmessage{
 				Message:    message,
 				SenderID:   cr.selfid.Pretty(),
 				SenderName: cr.UserName,
@@ -135,14 +136,14 @@ func (cr *ChatRoom) PubLoop() {
 			// Marshal the ChatMessage into a JSON
 			messagebytes, err := json.Marshal(m)
 			if err != nil {
-				cr.Logs <- chatlog{logprefix: "puberr", logmsg: "could not marshal JSON"}
+				cr.Logs <- Chatlog{Logprefix: "puberr", Logmsg: "could not marshal JSON"}
 				continue
 			}
 
 			// Publish the message to the topic
 			err = cr.pstopic.Publish(cr.psctx, messagebytes)
 			if err != nil {
-				cr.Logs <- chatlog{logprefix: "puberr", logmsg: "could not publish to topic"}
+				cr.Logs <- Chatlog{Logprefix: "puberr", Logmsg: "could not publish to topic"}
 				continue
 			}
 		}
@@ -166,7 +167,7 @@ func (cr *ChatRoom) SubLoop() {
 			if err != nil {
 				// Close the messages queue (subscription has closed)
 				close(cr.Inbound)
-				cr.Logs <- chatlog{logprefix: "suberr", logmsg: "subscription has closed"}
+				cr.Logs <- Chatlog{Logprefix: "suberr", Logmsg: "subscription has closed"}
 				return
 			}
 
@@ -176,11 +177,11 @@ func (cr *ChatRoom) SubLoop() {
 			}
 
 			// Declare a ChatMessage
-			cm := &chatmessage{}
+			cm := &Chatmessage{}
 			// Unmarshal the message data into a ChatMessage
 			err = json.Unmarshal(message.Data, cm)
 			if err != nil {
-				cr.Logs <- chatlog{logprefix: "suberr", logmsg: "could not unmarshal JSON"}
+				cr.Logs <- Chatlog{Logprefix: "suberr", Logmsg: "could not unmarshal JSON"}
 				continue
 			}
 
@@ -211,4 +212,8 @@ func (cr *ChatRoom) Exit() {
 // A method of ChatRoom that updates the chat user name
 func (cr *ChatRoom) UpdateUser(username string) {
 	cr.UserName = username
+}
+
+func (cr *ChatRoom) Ctx() context.Context {
+	return cr.psctx
 }

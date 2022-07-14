@@ -1,4 +1,4 @@
-package src
+package ui
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/manishmeganathan/peerchat/chat"
 	"github.com/rivo/tview"
 )
 
@@ -15,7 +16,7 @@ const appversion = "v1.1.0"
 // A structure that represents the ChatRoom UI
 type UI struct {
 	// Represents the ChatRoom (embedded)
-	*ChatRoom
+	*chat.ChatRoom
 	// Represents the tview application
 	TerminalApp *tview.Application
 
@@ -40,7 +41,7 @@ type uicommand struct {
 
 // A constructor function that generates and
 // returns a new UI for a given ChatRoom
-func NewUI(cr *ChatRoom) *UI {
+func NewUI(cr *chat.ChatRoom) *UI {
 	// Create a new Tview App
 	app := tview.NewApplication()
 
@@ -181,7 +182,7 @@ func (ui *UI) Run() error {
 
 // A method of UI that closes the UI app
 func (ui *UI) Close() {
-	ui.pscancel()
+	//ui.pscancel()
 }
 
 // A method of UI that handles UI events
@@ -214,7 +215,7 @@ func (ui *UI) starteventhandler() {
 			// Refresh the list of peers in the chat room periodically
 			ui.syncpeerbox()
 
-		case <-ui.psctx.Done():
+		case <-ui.Ctx().Done():
 			// End the event loop
 			return
 		}
@@ -240,17 +241,17 @@ func (ui *UI) handlecommand(cmd uicommand) {
 	// Check for the room change command
 	case "/room":
 		if cmd.cmdarg == "" {
-			ui.Logs <- chatlog{logprefix: "badcmd", logmsg: "missing room name for command"}
+			ui.Logs <- chat.Chatlog{Logprefix: "badcmd", Logmsg: "missing room name for command"}
 		} else {
-			ui.Logs <- chatlog{logprefix: "roomchange", logmsg: fmt.Sprintf("joining new room '%s'", cmd.cmdarg)}
+			ui.Logs <- chat.Chatlog{Logprefix: "roomchange", Logmsg: fmt.Sprintf("joining new room '%s'", cmd.cmdarg)}
 
 			// Create a reference to the current chatroom
 			oldchatroom := ui.ChatRoom
 
 			// Create a new chatroom and join it
-			newchatroom, err := JoinChatRoom(ui.Host, ui.UserName, cmd.cmdarg)
+			newchatroom, err := chat.JoinChatRoom(ui.Host, ui.UserName, cmd.cmdarg)
 			if err != nil {
-				ui.Logs <- chatlog{logprefix: "jumperr", logmsg: fmt.Sprintf("could not change chat room - %s", err)}
+				ui.Logs <- chat.Chatlog{Logprefix: "jumperr", Logmsg: fmt.Sprintf("could not change chat room - %s", err)}
 				return
 			}
 
@@ -271,7 +272,7 @@ func (ui *UI) handlecommand(cmd uicommand) {
 	// Check for the user change command
 	case "/user":
 		if cmd.cmdarg == "" {
-			ui.Logs <- chatlog{logprefix: "badcmd", logmsg: "missing user name for command"}
+			ui.Logs <- chat.Chatlog{Logprefix: "badcmd", Logmsg: "missing user name for command"}
 		} else {
 			// Update the chat user name
 			ui.UpdateUser(cmd.cmdarg)
@@ -281,12 +282,12 @@ func (ui *UI) handlecommand(cmd uicommand) {
 
 	// Unsupported command
 	default:
-		ui.Logs <- chatlog{logprefix: "badcmd", logmsg: fmt.Sprintf("unsupported command - %s", cmd.cmdtype)}
+		ui.Logs <- chat.Chatlog{Logprefix: "badcmd", Logmsg: fmt.Sprintf("unsupported command - %s", cmd.cmdtype)}
 	}
 }
 
 // A method of UI that displays a message recieved from a peer
-func (ui *UI) display_chatmessage(msg chatmessage) {
+func (ui *UI) display_chatmessage(msg chat.Chatmessage) {
 	prompt := fmt.Sprintf("[green]<%s>:[-]", msg.SenderName)
 	fmt.Fprintf(ui.messageBox, "%s %s\n", prompt, msg.Message)
 }
@@ -298,9 +299,9 @@ func (ui *UI) display_selfmessage(msg string) {
 }
 
 // A method of UI that displays a log message
-func (ui *UI) display_logmessage(log chatlog) {
-	prompt := fmt.Sprintf("[yellow]<%s>:[-]", log.logprefix)
-	fmt.Fprintf(ui.messageBox, "%s %s\n", prompt, log.logmsg)
+func (ui *UI) display_logmessage(log chat.Chatlog) {
+	prompt := fmt.Sprintf("[yellow]<%s>:[-]", log.Logprefix)
+	fmt.Fprintf(ui.messageBox, "%s %s\n", prompt, log.Logmsg)
 }
 
 // A method of UI that refreshes the list of peers

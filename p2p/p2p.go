@@ -1,9 +1,12 @@
-package src
+package p2p
 
 import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
+	"io/ioutil"
+	"os"
 	"sync"
 	"time"
 
@@ -11,10 +14,10 @@ import (
 	"github.com/libp2p/go-libp2p"
 	connmgr "github.com/libp2p/go-libp2p-connmgr"
 	"github.com/libp2p/go-libp2p-core/crypto"
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/routing"
 	discovery "github.com/libp2p/go-libp2p-discovery"
-	host "github.com/libp2p/go-libp2p-host"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	tls "github.com/libp2p/go-libp2p-tls"
@@ -26,7 +29,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const service = "manishmeganathan/peerchat"
+//const service = "manishmeganathan/peerchat"
 
 // A structure that represents a P2P Host
 type P2P struct {
@@ -44,6 +47,8 @@ type P2P struct {
 
 	// Represents the PubSub Handler
 	PubSub *pubsub.PubSub
+
+	service string
 }
 
 /*
@@ -56,17 +61,17 @@ A Kademlia DHT is then bootstrapped on this host using the default peers offered
 and a Peer Discovery service is created from this Kademlia DHT. The PubSub handler is then
 created on the host using the peer discovery service created prior.
 */
-func NewP2P() *P2P {
+func NewP2P(port int, service string, bootstrapPeers []multiaddr.Multiaddr) *P2P {
 	// Setup a background context
 	ctx := context.Background()
 
 	// Setup a P2P Host Node
-	nodehost, kaddht := setupHost(ctx)
+	nodehost, kaddht := setupHost(ctx, port, "")
 	// Debug log
 	logrus.Debugln("Created the P2P Host and the Kademlia DHT.")
 
 	// Bootstrap the Kad DHT
-	bootstrapDHT(ctx, nodehost, kaddht)
+	bootstrapDHT(ctx, nodehost, kaddht, bootstrapPeers)
 	// Debug log
 	logrus.Debugln("Bootstrapped the Kademlia DHT and Connected to Bootstrap Peers")
 
@@ -87,6 +92,7 @@ func NewP2P() *P2P {
 		KadDHT:    kaddht,
 		Discovery: routingdiscovery,
 		PubSub:    pubsubhandler,
+		service:   service,
 	}
 }
 
@@ -97,7 +103,7 @@ func NewP2P() *P2P {
 // of peer address information until the peer channel closes
 func (p2p *P2P) AdvertiseConnect() {
 	// Advertise the availabilty of the service on this node
-	ttl, err := p2p.Discovery.Advertise(p2p.Ctx, service)
+	ttl, err := p2p.Discovery.Advertise(p2p.Ctx, p2p.service)
 	// Debug log
 	logrus.Debugln("Advertised the PeerChat Service.")
 	// Sleep to give time for the advertisment to propogate
@@ -106,7 +112,7 @@ func (p2p *P2P) AdvertiseConnect() {
 	logrus.Debugf("Service Time-to-Live is %s", ttl)
 
 	// Find all peers advertising the same service
-	peerchan, err := p2p.Discovery.FindPeers(p2p.Ctx, service)
+	peerchan, err := p2p.Discovery.FindPeers(p2p.Ctx, p2p.service)
 	// Handle any potential error
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -129,7 +135,7 @@ func (p2p *P2P) AdvertiseConnect() {
 // of peer address information until the peer channel closes
 func (p2p *P2P) AnnounceConnect() {
 	// Generate the Service CID
-	cidvalue := generateCID(service)
+	cidvalue := generateCID(p2p.service)
 	// Trace log
 	logrus.Traceln("Generated the Service CID.")
 
@@ -158,9 +164,34 @@ func (p2p *P2P) AnnounceConnect() {
 
 // A function that generates the p2p configuration options and creates a
 // libp2p host object for the given context. The created host is returned
-func setupHost(ctx context.Context) (host.Host, *dht.IpfsDHT) {
-	// Set up the host identity options
-	prvkey, _, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, rand.Reader)
+func setupHost(ctx context.Context, port int, priKeyFile string) (host.Host, *dht.IpfsDHT) {
+	var (
+		err    error
+		prvkey crypto.PrivKey
+	)
+	if len(priKeyFile) == 0 {
+		prvkey, _, err = crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, rand.Reader)
+		if err != nil {
+			logrus.WithFields(logrus.Fields{
+				"error": err.Error(),
+			}).Fatalln("Failed to Generate P2P Identity Configuration!")
+		}
+	} else {
+
+		if _, err := os.Stat(priKeyFile); err != nil {
+			prvkey, _, err = crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, rand.Reader)
+
+		} else {
+			b, _ := ioutil.ReadFile(priKeyFile)
+			prvkey, err = crypto.UnmarshalPrivateKey(b)
+		}
+	}
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"error": err.Error(),
+		}).Fatalln("Failed to Generate P2P Identity Configuration!")
+	}
+
 	identity := libp2p.Identity(prvkey)
 	// Handle any potential error
 	if err != nil {
@@ -187,7 +218,7 @@ func setupHost(ctx context.Context) (host.Host, *dht.IpfsDHT) {
 	logrus.Traceln("Generated P2P Security and Transport Configurations.")
 
 	// Set up host listener address options
-	muladdr, err := multiaddr.NewMultiaddr("/ip4/0.0.0.0/tcp/0")
+	muladdr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port))
 	listen := libp2p.ListenAddrs(muladdr)
 	// Handle any potential error
 	if err != nil {
@@ -235,6 +266,10 @@ func setupHost(ctx context.Context) (host.Host, *dht.IpfsDHT) {
 		}).Fatalln("Failed to Create the P2P Host!")
 	}
 
+	keyBytes, err := crypto.MarshalPrivateKey(libhost.Peerstore().PrivKey(libhost.ID()))
+	if err == nil && len(priKeyFile) > 0 {
+		ioutil.WriteFile(priKeyFile, keyBytes, os.ModePerm)
+	}
 	// Return the created host and the kademlia DHT
 	return libhost, kaddht
 }
@@ -283,7 +318,7 @@ func setupPubSub(ctx context.Context, nodehost host.Host, routingdiscovery *disc
 
 // A function that bootstraps a given Kademlia DHT to satisfy the IPFS router
 // interface and connects to all the bootstrap peers provided by libp2p
-func bootstrapDHT(ctx context.Context, nodehost host.Host, kaddht *dht.IpfsDHT) {
+func bootstrapDHT(ctx context.Context, nodehost host.Host, kaddht *dht.IpfsDHT, bootstrapPeers []multiaddr.Multiaddr) {
 	// Bootstrap the DHT to satisfy the IPFS Router interface
 	if err := kaddht.Bootstrap(ctx); err != nil {
 		logrus.WithFields(logrus.Fields{
@@ -301,7 +336,7 @@ func bootstrapDHT(ctx context.Context, nodehost host.Host, kaddht *dht.IpfsDHT) 
 	var totalbootpeers int
 
 	// Iterate over the default bootstrap peers provided by libp2p
-	for _, peeraddr := range dht.DefaultBootstrapPeers {
+	for _, peeraddr := range bootstrapPeers {
 		// Retrieve the peer address information
 		peerinfo, _ := peer.AddrInfoFromP2pAddr(peeraddr)
 
@@ -342,7 +377,12 @@ func handlePeerDiscovery(nodehost host.Host, peerchan <-chan peer.AddrInfo) {
 		}
 
 		// Connect to the peer
-		nodehost.Connect(context.Background(), peer)
+		err := nodehost.Connect(context.Background(), peer)
+		if err != nil {
+			logrus.Warn("Connected %v error %v", peer, err)
+		} else {
+			logrus.Info("Connected %v ok", peer)
+		}
 	}
 }
 

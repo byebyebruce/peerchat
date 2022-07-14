@@ -16,6 +16,7 @@
 
 # Ignore VSCode configurations
 /.vscode
+.idea
 
 # Ignore Build Binary Directories
 /bin
