@@ -177,9 +177,11 @@ func setupHost(ctx context.Context, port int, priKeyFile string) (host.Host, *dh
 			}).Fatalln("Failed to Generate P2P Identity Configuration!")
 		}
 	} else {
-
 		if _, err := os.Stat(priKeyFile); err != nil {
 			prvkey, _, err = crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, rand.Reader)
+			if keyBytes, err := crypto.MarshalPrivateKey(prvkey); err == nil {
+				ioutil.WriteFile(priKeyFile, keyBytes, os.ModePerm)
+			}
 
 		} else {
 			b, _ := ioutil.ReadFile(priKeyFile)
@@ -266,10 +268,6 @@ func setupHost(ctx context.Context, port int, priKeyFile string) (host.Host, *dh
 		}).Fatalln("Failed to Create the P2P Host!")
 	}
 
-	keyBytes, err := crypto.MarshalPrivateKey(libhost.Peerstore().PrivKey(libhost.ID()))
-	if err == nil && len(priKeyFile) > 0 {
-		ioutil.WriteFile(priKeyFile, keyBytes, os.ModePerm)
-	}
 	// Return the created host and the kademlia DHT
 	return libhost, kaddht
 }
@@ -338,7 +336,10 @@ func bootstrapDHT(ctx context.Context, nodehost host.Host, kaddht *dht.IpfsDHT, 
 	// Iterate over the default bootstrap peers provided by libp2p
 	for _, peeraddr := range bootstrapPeers {
 		// Retrieve the peer address information
-		peerinfo, _ := peer.AddrInfoFromP2pAddr(peeraddr)
+		peerinfo, err := peer.AddrInfoFromP2pAddr(peeraddr)
+		if err != nil {
+			panic(err)
+		}
 
 		// Incremenent waitgroup counter
 		wg.Add(1)
