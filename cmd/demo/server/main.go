@@ -46,6 +46,8 @@ func main() {
 	loglevel := flag.String("log", "debug", "level of logs to print.")
 	//discovery := flag.String("discover", "", "method to use for discovery.")
 	bootstrap := flag.String("bootstrap", "", "bootstrap server")
+	port := flag.Int("port", 30999, "port")
+	pkFile := flag.String("pk", "s.pk", "pk file")
 	// Parse input flags
 	flag.Parse()
 
@@ -88,7 +90,7 @@ func main() {
 		//bp = dht.DefaultBootstrapPeers
 	}
 	// Create a new P2PHost
-	p2phost := p2p.NewP2PBoot(9933, service, "a.pk", bp)
+	p2phost := p2p.NewP2PBoot(*port, service, *pkFile, bp)
 	for _, v := range p2phost.Host.Addrs() {
 		fmt.Println(v.String() + "/p2p/" + p2phost.Host.ID().Pretty())
 	}
